@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}System Settings{% endblock %}
+{% block page_title %}System Settings{% endblock %}
+{% block page_subtitle %}Token lifetime, lockout rules and environment information{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+
+  <!-- Editable security parameters -->
+  <div class="col-xl-7">
+    <form class="card-ztna" id="settingsForm">
+      <div class="card-head"><h2 class="card-title-sm"><i data-lucide="sliders-horizontal"></i> Security parameters</h2></div>
+      <div class="card-pad">
+        {# key -> short explanation shown under each field #}
+        {% set help = {
+          'token_lifetime_minutes': 'How long a new access token stays valid. Applies to new logins only; existing tokens keep their original expiry.',
+          'max_failed_logins': 'Consecutive wrong passwords before the account is locked.',
+          'lockout_minutes': 'How long a locked account stays locked (an admin can unlock it earlier from User Management).',
+          'default_min_posture_score': 'Stored for reference. Each policy sets its own minimum device score on the Security Policies page.'
+        } %}
+        {% for key, limit in limits.items() %}
+        <div class="mb-3">
+          <label class="form-label" for="set_{{ key }}">{{ limit.label }}</label>
+          <input class="form-control setting-input" type="number" step="1" required
+                 id="set_{{ key }}" name="{{ key }}" min="{{ limit.min }}" max="{{ limit.max }}"
+                 value="{{ settings[key] }}">
+          <div class="form-text">{{ help[key] }} (allowed: {{ limit.min }}-{{ limit.max }})</div>
+        </div>
+        {% endfor %}
+
+        <div class="d-flex flex-wrap gap-2">
+          <button type="submit" class="btn btn-primary"><i data-lucide="save"></i> Save settings</button>
+          <button type="button" class="btn btn-outline-secondary" id="defaultsBtn">
+            <i data-lucide="rotate-ccw"></i> Fill recommended defaults
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- Read-only environment information -->
+  <div class="col-xl-5">
+    <div class="card-ztna mb-3" style="height:auto">
+      <div class="card-head"><h2 class="card-title-sm"><i data-lucide="server"></i> Environment</h2></div>
+      <div class="card-pad">
+        <dl class="row mb-0 small">
+          <dt class="col-5 text-muted">Python</dt><dd class="col-7">{{ system_info.python_version }}</dd>
+          <dt class="col-5 text-muted">Flask</dt><dd class="col-7">{{ system_info.flask_version }}</dd>
+          <dt class="col-5 text-muted">Database</dt><dd class="col-7 text-break">{{ system_info.database_path }}</dd>
+          <dt class="col-5 text-muted">Secret keys</dt>
+          <dd class="col-7">
+            {% if system_info.using_default_keys %}
+              <span class="badge-ztna warning">development defaults</span>
+              <div class="text-muted mt-1">Fine for a local demo. Set <code>ZTNA_FLASK_SECRET</code> and
+                <code>ZTNA_TOKEN_SECRET</code> for anything else.</div>
+            {% else %}
+              <span class="badge-ztna granted">custom keys</span>
+            {% endif %}
+          </dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="card-ztna" style="height:auto">
+      <div class="card-head"><h2 class="card-title-sm"><i data-lucide="lock-keyhole"></i> Active security mechanisms</h2></div>
+      <div class="card-pad">
+        <ul class="list-unstyled small mb-0 d-grid gap-2">
+          <li class="d-flex gap-2"><i data-lucide="check-circle" style="color:var(--success)"></i> Salted password hashing (Werkzeug)</li>
+          <li class="d-flex gap-2"><i data-lucide="check-circle" style="color:var(--success)"></i> HMAC-SHA256 signed, expiring, revocable tokens</li>
+          <li class="d-flex gap-2"><i data-lucide="check-circle" style="color:var(--success)"></i> Policy Decision Point and Enforcement Point on every request</li>
+          <li class="d-flex gap-2"><i data-lucide="check-circle" style="color:var(--success)"></i> Default deny when no active policy exists</li>
+          <li class="d-flex gap-2"><i data-lucide="check-circle" style="color:var(--success)"></i> Account lockout after repeated failed logins</li>
+          <li class="d-flex gap-2"><i data-lucide="check-circle" style="color:var(--success)"></i> CSRF tokens, HttpOnly cookies, parameterised SQL</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin-pages.js') }}"></script>
+<script>
+(function () {
+  "use strict";
+  const form = document.getElementById("settingsForm");
+  const inputs = Array.from(document.querySelectorAll(".setting-input"));
+  // Same values as config.py
+  const DEFAULTS = {
+    token_lifetime_minutes: 30, max_failed_logins: 5, lockout_minutes: 15, default_min_posture_score: 50,
+  };
+
+  document.getElementById("defaultsBtn").addEventListener("click", () => {
+    inputs.forEach((input) => { input.value = DEFAULTS[input.name]; });
+    showToast("Defaults filled in. Click 'Save settings' to apply them.", "info");
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const payload = {};
+    inputs.forEach((input) => { payload[input.name] = Number(input.value); });
+
+    const confirmed = await confirmAction({
+      title: "Save settings?",
+      message: "Token lifetime " + payload.token_lifetime_minutes + " min · lock after " +
+               payload.max_failed_logins + " failed logins for " + payload.lockout_minutes + " min.",
+      confirmText: "Save settings",
+    });
+    if (!confirmed) return;
+    await postAction("/api/settings", payload);
+  });
+})();
+</script>
+{% endblock %}

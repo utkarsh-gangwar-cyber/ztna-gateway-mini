@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}User Management{% endblock %}
+{% block page_title %}User Management{% endblock %}
+{% block page_subtitle %}Create accounts, change roles, disable or unlock users{% endblock %}
+
+{% block content %}
+<div class="card-ztna">
+
+  <!-- Search + filters (handled by the table engine in app.js) -->
+  <div class="table-toolbar">
+    <input type="search" class="form-control" placeholder="Search users..."
+           data-table-search="usersTable" aria-label="Search users">
+
+    <select class="form-select" data-table-filter="usersTable" data-column="1" aria-label="Filter by role">
+      <option value="">All roles</option>
+      {% for role in roles %}<option value="{{ role }}">{{ role|capitalize }}</option>{% endfor %}
+    </select>
+
+    <select class="form-select" data-table-filter="usersTable" data-column="2" aria-label="Filter by status">
+      <option value="">All statuses</option>
+      <option value="active">Active</option>
+      <option value="disabled">Disabled</option>
+      <option value="locked">Locked</option>
+    </select>
+
+    <span class="text-muted small"><span data-table-count="usersTable"></span> of {{ users|length }} users</span>
+
+    <button type="button" class="btn btn-primary ms-auto" id="newUserBtn">
+      <i data-lucide="user-plus"></i> New user
+    </button>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-ztna table-hover" id="usersTable">
+      <thead><tr>
+        <th>User</th><th>Role</th><th>Status</th><th>Last login (UTC)</th><th>Created (UTC)</th><th class="text-end">Actions</th>
+      </tr></thead>
+      <tbody>
+        {% for user in users %}
+        {% set is_self = (user.id == current_user.id) %}
+        {% set status = 'disabled' if not user.is_active else ('locked' if user.is_locked else 'active') %}
+        <tr>
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <div class="avatar">{{ user.full_name[:1]|upper }}</div>
+              <div>
+                <div class="fw-semibold">{{ user.full_name }}
+                  {% if is_self %}<span class="badge-ztna info">You</span>{% endif %}</div>
+                <div class="text-muted small">@{{ user.username }}</div>
+              </div>
+            </div>
+          </td>
+          <td data-value="{{ user.role }}"><span class="badge-ztna role">{{ user.role }}</span></td>
+          <td data-value="{{ status }}">
+            <span class="badge-ztna {{ status }}">{{ status }}</span>
+            {% if status == 'locked' %}<div class="text-muted small">until {{ user.locked_until }} UTC</div>
+            {% elif user.failed_attempts %}<div class="text-muted small">{{ user.failed_attempts }} failed login(s)</div>{% endif %}
+          </td>
+          <td class="text-muted">{{ user.last_login or 'Never' }}</td>
+          <td class="text-muted">{{ user.created_at }}</td>
+          <td class="text-end text-nowrap">
+            {% if is_self %}
+              <span class="text-muted small">Current session</span>
+            {% else %}
+              <button type="button" class="btn btn-outline-primary btn-sm" data-action="role"
+                      data-user-id="{{ user.id }}" data-username="{{ user.username }}" data-role="{{ user.role }}">
+                <i data-lucide="user-cog"></i> Role</button>
+
+              {% if user.is_active %}
+              <button type="button" class="btn btn-outline-danger btn-sm" data-action="disable"
+                      data-user-id="{{ user.id }}" data-username="{{ user.username }}">
+                <i data-lucide="user-x"></i> Disable</button>
+              {% else %}
+              <button type="button" class="btn btn-outline-success btn-sm" data-action="enable"
+                      data-user-id="{{ user.id }}" data-username="{{ user.username }}">
+                <i data-lucide="user-check"></i> Enable</button>
+              {% endif %}
+
+              {% if user.is_locked %}
+              <button type="button" class="btn btn-outline-warning btn-sm" data-action="unlock"
+                      data-user-id="{{ user.id }}" data-username="{{ user.username }}">
+                <i data-lucide="lock-open"></i> Unlock</button>
+              {% endif %}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        <tr data-no-results hidden><td colspan="6" class="empty-state">No users match your filters.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============ Create user dialog ============ -->
+<div class="modal fade" id="createUserModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" id="createUserForm" autocomplete="off">
+      <div class="modal-header">
+        <h5 class="modal-title">Create user</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label" for="newFullName">Full name</label>
+          <input class="form-control" id="newFullName" maxlength="80" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="newUsername">Username</label>
+          <input class="form-control" id="newUsername" maxlength="30" required
+                 pattern="[A-Za-z0-9_.\-]{3,30}" autocomplete="off">
+          <div class="form-text">3-30 characters: letters, digits, underscore, dot, hyphen.</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="newPassword">Password</label>
+          <input class="form-control" id="newPassword" type="password" minlength="8" maxlength="128"
+                 required autocomplete="new-password">
+          <div class="form-text">At least 8 characters with a letter and a digit. It is stored only as a salted hash.</div>
+        </div>
+        <div>
+          <label class="form-label" for="newRole">Role</label>
+          <select class="form-select" id="newRole">
+            {% for role in roles %}<option value="{{ role }}" {% if role == 'user' %}selected{% endif %}>{{ role|capitalize }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create user</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ Change role dialog ============ -->
+<div class="modal fade" id="roleModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" id="roleForm">
+      <div class="modal-header">
+        <h5 class="modal-title">Change role</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-3">Change the role of <strong id="roleUserName"></strong>. The new role is applied
+          on that user's very next request, without needing a new login.</p>
+        <label class="form-label" for="roleSelect">New role</label>
+        <select class="form-select" id="roleSelect">
+          {% for role in roles %}<option value="{{ role }}">{{ role|capitalize }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Continue</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin-pages.js') }}"></script>
+<script>
+(function () {
+  "use strict";
+  const createModalEl = document.getElementById("createUserModal");
+  const createForm = document.getElementById("createUserForm");
+  const roleModalEl = document.getElementById("roleModal");
+  const roleForm = document.getElementById("roleForm");
+  const roleSelect = document.getElementById("roleSelect");
+  let roleTarget = null;                       // {id, username, role} of the user being edited
+
+  // ---- Create user ----
+  document.getElementById("newUserBtn").addEventListener("click", () => {
+    createForm.reset();
+    showModal(createModalEl);
+  });
+
+  createForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submitButton = createForm.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    const result = await postAction("/api/users", {
+      full_name: document.getElementById("newFullName").value,
+      username: document.getElementById("newUsername").value,
+      password: document.getElementById("newPassword").value,
+      role: document.getElementById("newRole").value,
+    });
+    submitButton.disabled = false;
+    if (result.ok) hideModal(createModalEl);   // on failure the dialog stays open so you can fix the input
+  });
+
+  // ---- Change role (two steps: pick a role, then confirm) ----
+  roleForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!roleTarget) return;
+    const newRole = roleSelect.value;
+    if (newRole === roleTarget.role) {
+      showToast("That is already this user's role.", "info");
+      return;
+    }
+    await hideModal(roleModalEl);              // close first: two modals cannot be open together
+    const confirmed = await confirmAction({
+      title: "Change role?",
+      message: "Change '" + roleTarget.username + "' from '" + roleTarget.role + "' to '" + newRole +
+               "'? This changes what they can access immediately.",
+      confirmText: "Change role",
+    });
+    if (!confirmed) { showModal(roleModalEl); return; }
+    await postAction("/api/users/" + roleTarget.id + "/role", { role: newRole });
+  });
+
+  // ---- Row buttons (one listener for the whole table) ----
+  document.getElementById("usersTable").addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const action = button.dataset.action;
+    const id = button.dataset.userId;
+    const username = button.dataset.username;
+
+    if (action === "role") {
+      roleTarget = { id: id, username: username, role: button.dataset.role };
+      document.getElementById("roleUserName").textContent = "@" + username;
+      roleSelect.value = button.dataset.role;
+      showModal(roleModalEl);
+      return;
+    }
+
+    if (action === "disable") {
+      const ok = await confirmAction({
+        title: "Disable account?",
+        message: "Disable '" + username + "'? Their active sessions are revoked immediately and they cannot log in until re-enabled.",
+        confirmText: "Disable", danger: true,
+      });
+      if (ok) postAction("/api/users/" + id + "/active", { active: false });
+    } else if (action === "enable") {
+      const ok = await confirmAction({
+        title: "Enable account?", message: "Allow '" + username + "' to log in again?", confirmText: "Enable",
+      });
+      if (ok) postAction("/api/users/" + id + "/active", { active: true });
+    } else if (action === "unlock") {
+      const ok = await confirmAction({
+        title: "Unlock account?",
+        message: "Clear the lockout on '" + username + "' so they can try logging in again?",
+        confirmText: "Unlock",
+      });
+      if (ok) postAction("/api/users/" + id + "/unlock", {});
+    }
+  });
+})();
+</script>
+{% endblock %}

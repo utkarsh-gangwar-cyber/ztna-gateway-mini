@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ resource.name }}{% endblock %}
+{% block page_title %}{{ resource.name }}{% endblock %}
+{% block page_subtitle %}Protected resource · opened because every policy check passed{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-xl-7">
+    <div class="card-ztna">
+      <div class="card-head">
+        <h2 class="card-title-sm"><i data-lucide="file-lock"></i> {{ content.headline }}</h2>
+        <span class="badge-ztna granted">Access granted</span>
+      </div>
+      <div class="card-pad">
+        <p class="text-muted">{{ resource.description }}</p>
+        <ul class="list-unstyled mb-4">
+          {% for item in content['items'] %}
+          <li class="d-flex align-items-start gap-2 mb-2">
+            <i data-lucide="check-circle" style="color:var(--success);margin-top:.2rem"></i><span>{{ item }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        <p class="text-muted small">Demonstration content only: nothing here is real data.</p>
+        <a href="{{ url_for('access_requests') }}" class="btn btn-outline-primary btn-sm">
+          <i data-lucide="arrow-left"></i> Back to access requests
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-xl-5">
+    <div class="card-ztna">
+      <div class="card-head"><h2 class="card-title-sm"><i data-lucide="list-checks"></i> How access was decided</h2></div>
+      <div class="card-pad">
+        <ul class="check-timeline mb-3">
+          {% for step in decision.checks %}
+          <li class="check-step {{ 'pass' if step.passed else 'fail' }}">
+            <i data-lucide="{{ 'check-circle' if step.passed else 'x-circle' }}"></i>
+            <div><strong>{{ step.check }}</strong><br><span class="text-muted">{{ step.detail }}</span></div>
+          </li>
+          {% endfor %}
+        </ul>
+        <p class="text-muted small mb-0">This decision was written to the audit log.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

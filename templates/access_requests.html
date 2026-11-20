@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %}Access Requests{% endblock %}
+{% block page_title %}Access Requests{% endblock %}
+{% block page_subtitle %}Request a protected resource. The policy engine re-verifies everything on each request{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+
+  <!-- Who/what is asking: identity + device for this session -->
+  <div class="col-lg-4">
+    <div class="card-ztna">
+      <div class="card-head"><h2 class="card-title-sm"><i data-lucide="fingerprint"></i> Your session</h2></div>
+      <div class="card-pad">
+        <div class="stat-label">Signed in as</div>
+        <div class="fw-semibold">{{ current_user.full_name }}</div>
+        <span class="badge-ztna role mb-3">{{ current_user.role }}</span>
+
+        {% if my_device %}
+        <div class="stat-label mt-2">Device used for this session</div>
+        <div class="fw-semibold">{{ my_device.name }}</div>
+        <div class="text-muted small mb-2">{{ my_device.os_name }}</div>
+        <div class="d-flex align-items-center gap-2">
+          <div class="score-bar {{ my_device.trust_level }} flex-grow-1"><span style="width: {{ my_device.posture_score }}%"></span></div>
+          <strong>{{ my_device.posture_score }}</strong>
+        </div>
+        <span class="badge-ztna {{ my_device.trust_level }} mt-2">{{ my_device.trust_level|replace('_', ' ') }}</span>
+        {% else %}
+        <div class="text-muted">Device record not found.</div>
+        {% endif %}
+
+        <p class="text-muted small mt-3 mb-0">Role and device score are re-read from the database on
+          every request, so a change made by an admin applies immediately.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Resource cards with a real "Request access" button -->
+  <div class="col-lg-8">
+    <div class="row g-3">
+      {% for res in resources %}
+      <div class="col-md-6">
+        <div class="scenario-card d-flex flex-column">
+          <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+            <h3 class="h6 mb-0">{{ res.name }}</h3>
+            <span class="badge-ztna {{ {'high': 'critical', 'medium': 'warning', 'low': 'info-ok'}[res.sensitivity] }}">{{ res.sensitivity }}</span>
+          </div>
+          <p class="text-muted small mb-2">{{ res.description }}</p>
+
+          <div class="small mb-3">
+            {% if res.policy_id %}
+              {% for role_name in res.allowed_roles.split(',') %}<span class="badge-ztna role me-1">{{ role_name }}</span>{% endfor %}
+              <span class="text-muted">· device score &ge; {{ res.min_posture_score }}</span>
+              {% if not res.is_active %}<span class="badge-ztna warning ms-1">policy inactive</span>{% endif %}
+            {% else %}
+              <span class="badge-ztna denied">No policy: default deny</span>
+            {% endif %}
+          </div>
+
+          <button type="button" class="btn btn-primary btn-sm mt-auto"
+                  data-request-resource="{{ res.resource_id }}">
+            <i data-lucide="key"></i> Request access
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Result of the last request (filled in by JavaScript) -->
+<div class="card-ztna mb-3" id="resultPanel" hidden>
+  <div class="card-head">
+    <h2 class="card-title-sm"><i data-lucide="list-checks"></i> Decision: <span id="resultResource"></span></h2>
+    <span id="resultBadge"></span>
+  </div>
+  <div class="card-pad">
+    <p class="mb-3" id="resultReason"></p>
+    <ul class="check-timeline" id="resultChecks"></ul>
+    <a id="resultOpen" class="btn btn-primary btn-sm mt-3" href="#" hidden>
+      <i data-lucide="external-link"></i> Open resource
+    </a>
+  </div>
+</div>
+
+<!-- History -->
+<div class="card-ztna">
+  <div class="card-head">
+    <h2 class="card-title-sm"><i data-lucide="history"></i>
+      {% if can_see_all %}All recent access requests{% else %}Your access history{% endif %}</h2>
+    <span class="text-muted small">Times shown in UTC</span>
+  </div>
+
+  <div class="table-toolbar">
+    <input type="search" class="form-control" placeholder="Search history..."
+           data-table-search="requestsTable" aria-label="Search history">
+    <select class="form-select" data-table-filter="requestsTable" data-column="4" aria-label="Filter by decision">
+      <option value="">All decisions</option>
+      <option value="granted">Granted</option>
+      <option value="denied">Denied</option>
+    </select>
+    <span class="text-muted small"><span data-table-count="requestsTable"></span> shown</span>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-ztna table-hover" id="requestsTable"
+           data-username="{{ current_user.username }}" data-role="{{ current_user.role }}">
+      <thead><tr>
+        <th>Time</th><th>User</th><th>Role</th><th>Resource</th><th>Decision</th><th>Reason</th><th>IP</th>
+      </tr></thead>
+      <tbody>
+        {% for row in access_requests %}
+        <tr>
+          <td class="text-nowrap text-muted">{{ row.timestamp }}</td>
+          <td class="fw-semibold">{{ row.username }}</td>
+          <td>{% if row.role %}<span class="badge-ztna role">{{ row.role }}</span>{% else %}<span class="text-muted">-</span>{% endif %}</td>
+          <td>{{ row.resource_name }}</td>
+          <td data-value="{{ row.decision|lower }}">
+            <span class="badge-ztna {{ 'granted' if row.decision == 'GRANTED' else 'denied' }}">{{ 'Granted' if row.decision == 'GRANTED' else 'Denied' }}</span>
+          </td>
+          <td class="cell-reason" title="{{ row.reason }}">{{ row.reason }}</td>
+          <td class="text-muted text-nowrap">{{ row.ip_address }}</td>
+        </tr>
+        {% endfor %}
+        <tr data-no-results hidden><td colspan="7" class="empty-state">No access requests to show yet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+  const panel = document.getElementById("resultPanel");
+  const checksList = document.getElementById("resultChecks");
+  const openLink = document.getElementById("resultOpen");
+  const historyTable = document.getElementById("requestsTable");
+
+  function element(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;       // textContent = safe
+    return node;
+  }
+
+  // One line of the "how the policy engine decided" timeline
+  function addCheckStep(step) {
+    const item = element("li", "check-step " + (step.passed ? "pass" : "fail"));
+    const icon = document.createElement("i");
+    icon.setAttribute("data-lucide", step.passed ? "check-circle" : "x-circle");
+    const text = element("div");
+    text.append(element("strong", "", step.check), document.createElement("br"),
+                element("span", "text-muted", step.detail));
+    item.append(icon, text);
+    checksList.appendChild(item);
+  }
+
+  function showResult(result) {
+    document.getElementById("resultResource").textContent = result.resource || "unknown resource";
+    const badge = document.getElementById("resultBadge");
+    badge.replaceChildren(element("span", "badge-ztna " + (result.granted ? "granted" : "denied"),
+                                  result.granted ? "Access granted" : "Access denied"));
+    document.getElementById("resultReason").textContent = result.reason;
+
+    checksList.replaceChildren();
+    (result.checks || []).forEach(addCheckStep);
+
+    // Only follow paths that start with /resources/ (never trust a URL blindly)
+    if (result.granted && result.open_url && result.open_url.startsWith("/resources/")) {
+      openLink.href = result.open_url;
+      openLink.hidden = false;
+    } else {
+      openLink.hidden = true;
+    }
+    panel.hidden = false;
+    refreshIcons();
+    panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  // Add the new request to the top of the history table without reloading
+  function addHistoryRow(result) {
+    const tbody = historyTable.querySelector("tbody");
+    const row = document.createElement("tr");
+    const now = new Date().toISOString().slice(0, 19).replace("T", " ");
+
+    row.appendChild(element("td", "text-nowrap text-muted", now));
+    row.appendChild(element("td", "fw-semibold", historyTable.dataset.username));
+    const roleCell = document.createElement("td");
+    roleCell.appendChild(element("span", "badge-ztna role", historyTable.dataset.role));
+    row.appendChild(roleCell);
+    row.appendChild(element("td", "", result.resource || "unknown resource"));
+    const decisionCell = document.createElement("td");
+    decisionCell.dataset.value = result.granted ? "granted" : "denied";
+    decisionCell.appendChild(element("span", "badge-ztna " + (result.granted ? "granted" : "denied"),
+                                     result.granted ? "Granted" : "Denied"));
+    row.appendChild(decisionCell);
+    const reasonCell = element("td", "cell-reason", result.reason);
+    reasonCell.title = result.reason;
+    row.appendChild(reasonCell);
+    row.appendChild(element("td", "text-muted", "-"));
+
+    tbody.insertBefore(row, tbody.firstChild);
+    // Re-run the search/filter so the "shown" counter and the empty message update
+    const searchBox = document.querySelector('[data-table-search="requestsTable"]');
+    if (searchBox) searchBox.dispatchEvent(new Event("input"));
+  }
+
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-request-resource]");
+    if (!button) return;
+
+    button.disabled = true;
+    const result = await api("/api/access-request", "POST",
+                             { resource_id: Number(button.dataset.requestResource) });
+    button.disabled = false;
+
+    if (result.status === 401 || result.status === 0) return;   // api() already told the user
+    if (!result.ok) { showToast(result.message || "Request failed.", "danger"); return; }
+
+    showResult(result);
+    addHistoryRow(result);
+    showToast(result.granted ? "Access granted." : "Access denied: " + result.reason,
+              result.granted ? "success" : "danger");
+  });
+})();
+</script>
+{% endblock %}

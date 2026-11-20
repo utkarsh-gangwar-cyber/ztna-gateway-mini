@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}Security Policies{% endblock %}
+{% block page_title %}Security Policies{% endblock %}
+{% block page_subtitle %}Which roles may open each resource, and the minimum device trust required{% endblock %}
+
+{% block content %}
+{% if not can_edit %}
+<div class="card-ztna card-pad mb-3 d-flex align-items-center gap-2 text-muted" style="height:auto">
+  <i data-lucide="eye"></i> View-only: only administrators can create or change policies.
+</div>
+{% endif %}
+
+<div class="card-ztna">
+  <div class="table-toolbar">
+    <input type="search" class="form-control" placeholder="Search resources..."
+           data-table-search="policiesTable" aria-label="Search policies">
+    <select class="form-select" data-table-filter="policiesTable" data-column="1" aria-label="Filter by sensitivity">
+      <option value="">All sensitivities</option>
+      <option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+    </select>
+    <select class="form-select" data-table-filter="policiesTable" data-column="4" aria-label="Filter by status">
+      <option value="">All policy states</option>
+      <option value="active">Active</option><option value="inactive">Inactive</option><option value="none">No policy</option>
+    </select>
+    <span class="text-muted small"><span data-table-count="policiesTable"></span> of {{ policies|length }} resources</span>
+    {% if can_edit %}
+    <button type="button" class="btn btn-primary ms-auto" id="newResourceBtn">
+      <i data-lucide="plus"></i> New resource
+    </button>
+    {% endif %}
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-ztna table-hover" id="policiesTable">
+      <thead><tr>
+        <th>Resource</th><th>Sensitivity</th><th>Allowed roles</th><th>Min device score</th>
+        <th>Policy state</th><th>Updated (UTC)</th>{% if can_edit %}<th class="text-end">Actions</th>{% endif %}
+      </tr></thead>
+      <tbody>
+        {% for policy in policies %}
+        {% set state = 'none' if not policy.policy_id else ('active' if policy.is_active else 'inactive') %}
+        <tr>
+          <td>
+            <div class="fw-semibold">{{ policy.name }}</div>
+            <div class="text-muted small">{{ policy.path }}</div>
+            {% if policy.description %}<div class="text-muted small">{{ policy.description }}</div>{% endif %}
+          </td>
+          <td data-value="{{ policy.sensitivity }}">
+            <span class="badge-ztna {{ {'high': 'critical', 'medium': 'warning', 'low': 'info-ok'}[policy.sensitivity] }}">{{ policy.sensitivity }}</span>
+          </td>
+          <td>
+            {% if policy.roles_list %}{% for role_name in policy.roles_list %}<span class="badge-ztna role me-1">{{ role_name }}</span>{% endfor %}
+            {% else %}<span class="text-muted">-</span>{% endif %}
+          </td>
+          <td>{% if policy.policy_id %}<strong>{{ policy.min_posture_score }}</strong><span class="text-muted"> / 100</span>{% else %}<span class="text-muted">-</span>{% endif %}</td>
+          <td data-value="{{ state }}">
+            {% if state == 'none' %}<span class="badge-ztna denied">No policy (deny)</span>
+            {% elif state == 'inactive' %}<span class="badge-ztna warning">Inactive</span>
+            {% else %}<span class="badge-ztna active">Active</span>{% endif %}
+          </td>
+          <td class="text-muted">{{ policy.updated_at or '-' }}</td>
+          {% if can_edit %}
+          <td class="text-end">
+            <button type="button" class="btn btn-outline-primary btn-sm" data-edit-policy
+                    data-resource-id="{{ policy.resource_id }}" data-name="{{ policy.name }}"
+                    data-roles="{{ policy.roles_list|join(',') }}"
+                    data-min="{{ policy.min_posture_score if policy.policy_id else 50 }}"
+                    data-active="{{ '1' if (not policy.policy_id or policy.is_active) else '0' }}">
+              <i data-lucide="pencil"></i> {{ 'Edit' if policy.policy_id else 'Create policy' }}
+            </button>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+        <tr data-no-results hidden><td colspan="7" class="empty-state">No resources match your filters.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card-ztna card-pad mt-3" style="height:auto">
+  <h2 class="card-title-sm mb-2"><i data-lucide="info"></i> How policies are used</h2>
+  <p class="text-muted small mb-0">On every request the policy engine checks, in order: token, account, an
+    <strong>active</strong> policy for the resource, the user's role, then the device score. A resource with no
+    active policy is denied by default (Zero Trust "default deny"). Changes here apply on the very next request.</p>
+</div>
+
+{% if can_edit %}
+<!-- ============ Edit / create policy dialog ============ -->
+<div class="modal fade" id="policyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" id="policyForm">
+      <div class="modal-header">
+        <h5 class="modal-title">Policy: <span id="policyResourceName"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">Allowed roles</label>
+        <div class="mb-3">
+          {% for role_name in roles %}
+          <div class="form-check">
+            <input class="form-check-input policy-role" type="checkbox" value="{{ role_name }}" id="policyRole_{{ role_name }}">
+            <label class="form-check-label" for="policyRole_{{ role_name }}">{{ role_name|capitalize }}</label>
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label" for="policyMinScore">Minimum device posture score (0-100)</label>
+          <input class="form-control" id="policyMinScore" type="number" min="0" max="100" step="1" required>
+          <div class="form-text">A device scoring below this is denied. Default tiers: 80+ trusted, 50-79 at risk, below 50 untrusted.</div>
+        </div>
+
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" role="switch" id="policyActive">
+          <label class="form-check-label" for="policyActive">Policy active</label>
+        </div>
+        <div class="form-text">An inactive policy denies everyone (same as having no policy).</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save policy</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ New resource dialog ============ -->
+<div class="modal fade" id="resourceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" id="resourceForm" autocomplete="off">
+      <div class="modal-header">
+        <h5 class="modal-title">New protected resource</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label" for="resName">Name</label>
+          <input class="form-control" id="resName" maxlength="60" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="resDescription">Description</label>
+          <input class="form-control" id="resDescription" maxlength="200">
+        </div>
+        <div>
+          <label class="form-label" for="resSensitivity">Sensitivity</label>
+          <select class="form-select" id="resSensitivity">
+            <option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option>
+          </select>
+        </div>
+        <div class="form-text mt-2">A new resource has no policy, so it is denied for everyone until you create one.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create resource</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if can_edit %}
+<script src="{{ url_for('static', filename='js/admin-pages.js') }}"></script>
+<script>
+(function () {
+  "use strict";
+  const policyModalEl = document.getElementById("policyModal");
+  const policyForm = document.getElementById("policyForm");
+  const resourceModalEl = document.getElementById("resourceModal");
+  const resourceForm = document.getElementById("resourceForm");
+  const roleBoxes = Array.from(document.querySelectorAll(".policy-role"));
+  let editing = null;                          // {id, name} of the resource being edited
+
+  // ---- Open the policy dialog from any "Edit / Create policy" button ----
+  document.getElementById("policiesTable").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-edit-policy]");
+    if (!button) return;
+    editing = { id: Number(button.dataset.resourceId), name: button.dataset.name };
+
+    const currentRoles = button.dataset.roles ? button.dataset.roles.split(",") : [];
+    roleBoxes.forEach((box) => { box.checked = currentRoles.includes(box.value); });
+    document.getElementById("policyMinScore").value = button.dataset.min;
+    document.getElementById("policyActive").checked = button.dataset.active === "1";
+    document.getElementById("policyResourceName").textContent = button.dataset.name;
+    showModal(policyModalEl);
+  });
+
+  // ---- Save: validate, close dialog, confirm, send ----
+  policyForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!editing) return;
+
+    const roles = roleBoxes.filter((box) => box.checked).map((box) => box.value);
+    if (!roles.length) { showToast("Select at least one role.", "warning"); return; }
+    const minScore = Number(document.getElementById("policyMinScore").value);
+    const active = document.getElementById("policyActive").checked;
+
+    await hideModal(policyModalEl);
+    const confirmed = await confirmAction({
+      title: "Save policy?",
+      message: "'" + editing.name + "': roles " + roles.join(", ") + " · minimum device score " + minScore +
+               " · " + (active ? "active" : "inactive") + ". This applies on the very next request.",
+      confirmText: "Save policy",
+    });
+    if (!confirmed) { showModal(policyModalEl); return; }
+
+    await postAction("/api/policies", {
+      resource_id: editing.id, allowed_roles: roles, min_posture_score: minScore, is_active: active,
+    });
+  });
+
+  // ---- New resource ----
+  document.getElementById("newResourceBtn").addEventListener("click", () => {
+    resourceForm.reset();
+    showModal(resourceModalEl);
+  });
+
+  resourceForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submitButton = resourceForm.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    const result = await postAction("/api/resources", {
+      name: document.getElementById("resName").value,
+      description: document.getElementById("resDescription").value,
+      sensitivity: document.getElementById("resSensitivity").value,
+    }, { delay: 2500 });                       // longer delay so the "no policy yet" message can be read
+    submitButton.disabled = false;
+    if (result.ok) hideModal(resourceModalEl);
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

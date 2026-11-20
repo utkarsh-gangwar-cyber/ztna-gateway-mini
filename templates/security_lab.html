@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}Security Lab{% endblock %}
+{% block page_title %}Security Testing Lab{% endblock %}
+{% block page_subtitle %}Run local, simulated attacks through the real policy engine{% endblock %}
+
+{% block content %}
+
+<div class="card-ztna card-pad mb-3 d-flex align-items-start gap-3" style="height:auto">
+  <i data-lucide="shield-check" style="color:#60a5fa;margin-top:.2rem"></i>
+  <div class="small">
+    <strong>Safe by design.</strong> Every scenario uses only the local demo accounts and simulated devices.
+    Tokens created for a test are revoked afterwards, and the invalid-login test uses made-up usernames, so your
+    real accounts are never locked. Each run is written to the audit log (IP column tagged
+    <code>[lab]</code>) and changes the dashboard counters.
+  </div>
+</div>
+
+<!-- Live counters (refreshed after every run) -->
+<div class="row row-cols-2 row-cols-lg-4 g-3 mb-3">
+  <div class="col"><div class="stat-card stat-indigo"><div class="stat-icon"><i data-lucide="key"></i></div>
+    <div><div class="stat-value" id="labTotal">-</div><div class="stat-label">Access requests</div></div></div></div>
+  <div class="col"><div class="stat-card stat-green"><div class="stat-icon"><i data-lucide="check-circle"></i></div>
+    <div><div class="stat-value" id="labGranted">-</div><div class="stat-label">Granted</div></div></div></div>
+  <div class="col"><div class="stat-card stat-red"><div class="stat-icon"><i data-lucide="shield-alert"></i></div>
+    <div><div class="stat-value" id="labDenied">-</div><div class="stat-label">Denied</div></div></div></div>
+  <div class="col"><div class="stat-card stat-cyan"><div class="stat-icon"><i data-lucide="activity"></i></div>
+    <div><div class="stat-value" id="labSessions">-</div><div class="stat-label">Active sessions</div></div></div></div>
+</div>
+
+<div class="page-toolbar">
+  <button type="button" class="btn btn-primary" id="runAllBtn"><i data-lucide="play"></i> Run all 6 scenarios</button>
+  <button type="button" class="btn btn-outline-secondary" id="clearBtn"><i data-lucide="eraser"></i> Clear results</button>
+  <div class="ms-auto d-flex gap-2">
+    <a href="{{ url_for('audit_logs') }}" class="btn btn-outline-primary btn-sm"><i data-lucide="scroll-text"></i> Audit logs</a>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-primary btn-sm"><i data-lucide="layout-dashboard"></i> Dashboard</a>
+  </div>
+</div>
+
+<div class="row g-3">
+  {% for scenario in scenarios %}
+  <div class="col-xl-6">
+    <div class="scenario-card" data-scenario="{{ scenario.id }}">
+      <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+        <h2 class="h6 mb-0">{{ loop.index }}. {{ scenario.title }}</h2>
+        <span class="badge-ztna {{ 'granted' if scenario.expected == 'GRANTED' else 'denied' }}">expected: {{ scenario.expected|lower }}</span>
+      </div>
+      <p class="text-muted small">{{ scenario.description }}</p>
+      <button type="button" class="btn btn-outline-primary btn-sm" data-run="{{ scenario.id }}">
+        <i data-lucide="play"></i> Run scenario
+      </button>
+      <div class="lab-result mt-3" id="result-{{ scenario.id }}"></div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  "use strict";
+
+  const runAllButton = document.getElementById("runAllBtn");
+  const runButtons = Array.from(document.querySelectorAll("[data-run]"));
+
+  // Small DOM helper. textContent only, so server text can never run as HTML.
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function setBusy(busy) {
+    runAllButton.disabled = busy;
+    runButtons.forEach((button) => { button.disabled = busy; });
+  }
+
+  function updateStats(stats) {
+    if (!stats) return;
+    document.getElementById("labTotal").textContent = stats.total_requests;
+    document.getElementById("labGranted").textContent = stats.granted;
+    document.getElementById("labDenied").textContent = stats.denied;
+    document.getElementById("labSessions").textContent = stats.active_sessions;
+  }
+
+  // One step of the "how it was decided" timeline.
+  // In the invalid-login scenario a REJECTED login is the desired outcome, so it is shown as a pass.
+  function buildStep(step, scenarioId) {
+    const good = scenarioId === "invalid_logins" ? !step.passed : step.passed;
+    const item = el("li", "check-step " + (good ? "pass" : "fail"));
+    const icon = document.createElement("i");
+    icon.setAttribute("data-lucide", good ? "check-circle" : "x-circle");
+    const text = el("div");
+    text.append(el("strong", "", step.check), document.createElement("br"), el("span", "text-muted", step.detail));
+    item.append(icon, text);
+    return item;
+  }
+
+  function renderResult(result) {
+    const box = document.getElementById("result-" + result.id);
+    if (!box) return;
+    box.replaceChildren();
+
+    if (result.error) {
+      box.appendChild(el("div", "alert alert-danger mb-0", result.error));
+      return;
+    }
+
+    // Badges: expected vs actual, and whether they matched
+    const badges = el("div", "d-flex flex-wrap gap-2 mb-2");
+    badges.appendChild(el("span", "badge-ztna info", "expected: " + result.expected.toLowerCase()));
+    badges.appendChild(el("span", "badge-ztna " + (result.actual === "GRANTED" ? "granted" : "denied"),
+                          "actual: " + result.actual.toLowerCase()));
+    badges.appendChild(result.matched_expectation
+      ? el("span", "badge-ztna granted", "as expected")
+      : el("span", "badge-ztna warning", "unexpected: demo data or policies were changed"));
+    box.appendChild(badges);
+
+    const reason = el("p", "mb-2");
+    reason.append(el("strong", "", "Result: "), document.createTextNode(result.reason));
+    box.appendChild(reason);
+
+    const why = el("p", "small text-muted mb-2");
+    why.append(el("strong", "", "Why: "), document.createTextNode(result.explanation));
+    box.appendChild(why);
+
+    if (result.evidence && result.evidence.length) {
+      const evidence = el("ul", "small text-muted mb-2");
+      result.evidence.forEach((line) => evidence.appendChild(el("li", "", line)));
+      box.appendChild(evidence);
+    }
+
+    if (result.checks && result.checks.length) {
+      const timeline = el("ul", "check-timeline");
+      result.checks.forEach((step) => timeline.appendChild(buildStep(step, result.id)));
+      box.appendChild(timeline);
+    }
+    window.refreshIcons();
+  }
+
+  async function runOne(scenarioId) {
+    setBusy(true);
+    const response = await api("/api/security-lab/run/" + scenarioId, "POST", {});
+    setBusy(false);
+    if (response.status === 401 || response.status === 0) return;
+    if (!response.ok) { showToast(response.message || "Scenario failed.", "danger"); return; }
+
+    renderResult(response.result);
+    updateStats(response.stats);
+    const matched = response.result.matched_expectation;
+    showToast(response.result.title + ": " + (matched ? "behaved as expected." : "unexpected outcome."),
+              matched ? "success" : "warning");
+  }
+
+  async function runAll() {
+    setBusy(true);
+    runAllButton.textContent = "Running...";
+    const response = await api("/api/security-lab/run-all", "POST", {});
+    runAllButton.replaceChildren();
+    const icon = document.createElement("i");
+    icon.setAttribute("data-lucide", "play");
+    runAllButton.append(icon, document.createTextNode(" Run all 6 scenarios"));
+    refreshIcons();
+    setBusy(false);
+
+    if (response.status === 401 || response.status === 0) return;
+    if (!response.ok) { showToast(response.message || "Run failed.", "danger"); return; }
+
+    response.results.forEach(renderResult);
+    updateStats(response.stats);
+    const matchedCount = response.results.filter((r) => r.matched_expectation).length;
+    showToast(matchedCount + " of " + response.results.length + " scenarios behaved as expected.",
+              matchedCount === response.results.length ? "success" : "warning");
+  }
+
+  runButtons.forEach((button) => button.addEventListener("click", () => runOne(button.dataset.run)));
+  runAllButton.addEventListener("click", runAll);
+  document.getElementById("clearBtn").addEventListener("click", () => {
+    document.querySelectorAll(".lab-result").forEach((box) => box.replaceChildren());
+    showToast("Results cleared. Logs and dashboard counters are kept.", "info");
+  });
+
+  // Load the current counters when the page opens
+  (async function loadInitialStats() {
+    const data = await api("/api/dashboard-stats");
+    if (data && data.stats) updateStats(data.stats);
+  })();
+})();
+</script>
+{% endblock %}

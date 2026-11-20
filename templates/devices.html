@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block title %}Device Posture{% endblock %}
+{% block page_title %}Device Posture{% endblock %}
+{% block page_subtitle %}Simulated endpoint health. The score decides which resources a device may reach{% endblock %}
+
+{% block content %}
+<div class="row row-cols-1 row-cols-md-3 g-3 mb-3">
+  <div class="col"><div class="stat-card stat-green">
+    <div class="stat-icon"><i data-lucide="shield-check"></i></div>
+    <div><div class="stat-value">{{ device_trust.trusted }}</div><div class="stat-label">Trusted (score 80+)</div></div>
+  </div></div>
+  <div class="col"><div class="stat-card" style="--x:0">
+    <div class="stat-icon" style="background:var(--warning-soft);color:var(--warning)"><i data-lucide="shield-alert"></i></div>
+    <div><div class="stat-value">{{ device_trust.at_risk }}</div><div class="stat-label">At risk (50-79)</div></div>
+  </div></div>
+  <div class="col"><div class="stat-card stat-red">
+    <div class="stat-icon"><i data-lucide="shield-off"></i></div>
+    <div><div class="stat-value">{{ device_trust.untrusted }}</div><div class="stat-label">Untrusted (below 50)</div></div>
+  </div></div>
+</div>
+
+<div class="card-ztna">
+  <div class="table-toolbar">
+    <input type="search" class="form-control" placeholder="Search devices..."
+           data-table-search="devicesTable" aria-label="Search devices">
+    <select class="form-select" data-table-filter="devicesTable" data-column="2" aria-label="Filter by trust level">
+      <option value="">All trust levels</option>
+      <option value="trusted">Trusted</option><option value="at_risk">At risk</option><option value="untrusted">Untrusted</option>
+    </select>
+    <span class="text-muted small"><span data-table-count="devicesTable"></span> of {{ devices|length }} devices</span>
+    {% if can_edit %}
+    <button type="button" class="btn btn-primary ms-auto" id="newDeviceBtn">
+      <i data-lucide="plus"></i> Register device
+    </button>
+    {% endif %}
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-ztna table-hover" id="devicesTable">
+      <thead><tr>
+        <th>Device</th><th style="min-width:150px">Posture score</th><th>Trust level</th>
+        <th>Security controls</th><th>Last checked (UTC)</th>{% if can_edit %}<th class="text-end">Actions</th>{% endif %}
+      </tr></thead>
+      <tbody>
+        {% for device in devices %}
+        <tr>
+          <td><div class="fw-semibold">{{ device.name }}</div><div class="text-muted small">{{ device.os_name }}</div></td>
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              <div class="score-bar {{ device.trust_level }} flex-grow-1"><span style="width: {{ device.posture_score }}%"></span></div>
+              <strong>{{ device.posture_score }}</strong>
+            </div>
+          </td>
+          <td data-value="{{ device.trust_level }}"><span class="badge-ztna {{ device.trust_level }}">{{ device.trust_level|replace('_', ' ') }}</span></td>
+          <td>
+            <div class="d-flex flex-wrap gap-1">
+              <span class="badge-ztna {{ 'granted' if device.os_patched else 'denied' }}"><i data-lucide="{{ 'check' if device.os_patched else 'x' }}"></i> Patched</span>
+              <span class="badge-ztna {{ 'granted' if device.antivirus_on else 'denied' }}"><i data-lucide="{{ 'check' if device.antivirus_on else 'x' }}"></i> Antivirus</span>
+              <span class="badge-ztna {{ 'granted' if device.disk_encrypted else 'denied' }}"><i data-lucide="{{ 'check' if device.disk_encrypted else 'x' }}"></i> Encrypted</span>
+              <span class="badge-ztna {{ 'granted' if device.firewall_on else 'denied' }}"><i data-lucide="{{ 'check' if device.firewall_on else 'x' }}"></i> Firewall</span>
+            </div>
+          </td>
+          <td class="text-muted">{{ device.last_checked }}</td>
+          {% if can_edit %}
+          <td class="text-end">
+            <button type="button" class="btn btn-outline-primary btn-sm" data-edit-device
+                    data-device-id="{{ device.id }}" data-name="{{ device.name }}"
+                    data-os-patched="{{ device.os_patched }}" data-antivirus-on="{{ device.antivirus_on }}"
+                    data-disk-encrypted="{{ device.disk_encrypted }}" data-firewall-on="{{ device.firewall_on }}">
+              <i data-lucide="sliders-horizontal"></i> Edit posture
+            </button>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+        <tr data-no-results hidden><td colspan="6" class="empty-state">No devices match your filters.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card-ztna card-pad mt-3" style="height:auto">
+  <h2 class="card-title-sm mb-2"><i data-lucide="info"></i> About this simulation</h2>
+  <p class="text-muted small mb-0">A real ZTNA product receives device health from an endpoint agent. Here you
+    set the four controls yourself. The score is the sum of the enabled controls (OS patched 30, antivirus 25,
+    disk encryption 25, firewall 20). Try lowering a device's score, then request a protected resource with it:
+    the next request is denied for low device trust.</p>
+</div>
+
+{% if can_edit %}
+<!-- ============ Register / edit device dialog ============ -->
+<div class="modal fade" id="deviceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" id="deviceForm" autocomplete="off">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deviceModalTitle">Register device</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div id="deviceIdentityRow" class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label" for="devName">Device name</label>
+            <input class="form-control" id="devName" maxlength="60">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="devOs">Operating system</label>
+            <input class="form-control" id="devOs" maxlength="40">
+          </div>
+        </div>
+
+        <label class="form-label">Security controls</label>
+        <div class="form-check form-switch mb-2"><input class="form-check-input posture-switch" type="checkbox" role="switch" id="devOsPatched" data-weight="30"><label class="form-check-label" for="devOsPatched">OS fully patched (+30)</label></div>
+        <div class="form-check form-switch mb-2"><input class="form-check-input posture-switch" type="checkbox" role="switch" id="devAntivirus" data-weight="25"><label class="form-check-label" for="devAntivirus">Antivirus / EDR running (+25)</label></div>
+        <div class="form-check form-switch mb-2"><input class="form-check-input posture-switch" type="checkbox" role="switch" id="devDisk" data-weight="25"><label class="form-check-label" for="devDisk">Disk encrypted (+25)</label></div>
+        <div class="form-check form-switch mb-3"><input class="form-check-input posture-switch" type="checkbox" role="switch" id="devFirewall" data-weight="20"><label class="form-check-label" for="devFirewall">Firewall enabled (+20)</label></div>
+
+        <div class="d-flex align-items-center gap-2">
+          <div class="score-bar flex-grow-1" id="previewBar"><span style="width:0%"></span></div>
+          <strong id="previewScore">0</strong>
+        </div>
+        <div class="form-text">Preview only: the server recalculates the score and trust level when you save.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="deviceSubmit">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if can_edit %}
+<script src="{{ url_for('static', filename='js/admin-pages.js') }}"></script>
+<script>
+(function () {
+  "use strict";
+  const modalEl = document.getElementById("deviceModal");
+  const form = document.getElementById("deviceForm");
+  const identityRow = document.getElementById("deviceIdentityRow");
+  const switches = Array.from(document.querySelectorAll(".posture-switch"));
+  const [osPatched, antivirus, disk, firewall] =
+    ["devOsPatched", "devAntivirus", "devDisk", "devFirewall"].map((id) => document.getElementById(id));
+  let editing = null;                          // {id, name} in edit mode, null in register mode
+
+  // Live preview of the score (cosmetic; the weights mirror config.py)
+  function updatePreview() {
+    const score = switches.reduce((sum, box) => sum + (box.checked ? Number(box.dataset.weight) : 0), 0);
+    const level = score >= 80 ? "trusted" : (score >= 50 ? "at_risk" : "untrusted");
+    const bar = document.getElementById("previewBar");
+    bar.className = "score-bar flex-grow-1 " + level;
+    bar.firstElementChild.style.width = score + "%";
+    document.getElementById("previewScore").textContent = score + " (" + level.replace("_", " ") + ")";
+  }
+  switches.forEach((box) => box.addEventListener("change", updatePreview));
+
+  // ---- Register a new device ----
+  document.getElementById("newDeviceBtn").addEventListener("click", () => {
+    editing = null;
+    form.reset();
+    identityRow.hidden = false;
+    document.getElementById("deviceModalTitle").textContent = "Register device";
+    document.getElementById("deviceSubmit").textContent = "Register device";
+    updatePreview();
+    showModal(modalEl);
+  });
+
+  // ---- Edit an existing device's posture ----
+  document.getElementById("devicesTable").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-edit-device]");
+    if (!button) return;
+    editing = { id: button.dataset.deviceId, name: button.dataset.name };
+    identityRow.hidden = true;                 // name and OS are not editable here
+    osPatched.checked = button.dataset.osPatched === "1";
+    antivirus.checked = button.dataset.antivirusOn === "1";
+    disk.checked = button.dataset.diskEncrypted === "1";
+    firewall.checked = button.dataset.firewallOn === "1";
+    document.getElementById("deviceModalTitle").textContent = "Edit posture: " + button.dataset.name;
+    document.getElementById("deviceSubmit").textContent = "Save posture";
+    updatePreview();
+    showModal(modalEl);
+  });
+
+  // ---- Save ----
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const flags = {
+      os_patched: osPatched.checked, antivirus_on: antivirus.checked,
+      disk_encrypted: disk.checked, firewall_on: firewall.checked,
+    };
+
+    if (editing === null) {                    // register
+      const name = document.getElementById("devName").value.trim();
+      const osName = document.getElementById("devOs").value.trim();
+      if (!name || !osName) { showToast("Device name and operating system are required.", "warning"); return; }
+      const submitButton = document.getElementById("deviceSubmit");
+      submitButton.disabled = true;
+      const result = await postAction("/api/devices", Object.assign({ name: name, os_name: osName }, flags));
+      submitButton.disabled = false;
+      if (result.ok) hideModal(modalEl);
+      return;
+    }
+
+    // edit: close the dialog, confirm, then send
+    await hideModal(modalEl);
+    const confirmed = await confirmAction({
+      title: "Update device posture?",
+      message: "Change the security controls of '" + editing.name + "'? Its score is recalculated and applies " +
+               "on its very next request. Resources that need a higher score will be denied.",
+      confirmText: "Update posture",
+    });
+    if (!confirmed) { showModal(modalEl); return; }
+    await postAction("/api/devices/" + editing.id + "/posture", flags);
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

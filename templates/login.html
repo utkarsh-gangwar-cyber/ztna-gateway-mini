@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+
+{# The login page has no sidebar, so it replaces the whole layout block. #}
+{% block layout %}
+<div class="login-wrap">
+
+  <!-- Left: explains the Zero Trust idea (hidden on small screens) -->
+  <section class="login-brand">
+    <div class="d-flex align-items-center gap-3">
+      <div class="brand-mark"><i data-lucide="shield-check"></i></div>
+      <div><strong class="fs-5">Mini ZTNA Gateway</strong><br>
+        <small class="text-muted">Identity-Based Authentication and Policy-Driven Resource Access Control</small></div>
+    </div>
+    <h2>Never trust.<br><span>Always verify.</span></h2>
+    <p class="lead">Logging in is only the first step. Every request to a protected resource is
+      re-evaluated against these checks:</p>
+    <ul class="verify-list">
+      <li><i data-lucide="user-check"></i><span><strong>Identity</strong>: salted password hashes and lockout after repeated failures</span></li>
+      <li><i data-lucide="key-round"></i><span><strong>Token</strong>: HMAC-SHA256 signed, time-limited, revocable</span></li>
+      <li><i data-lucide="users"></i><span><strong>Role</strong>: role-based access control per resource</span></li>
+      <li><i data-lucide="file-lock"></i><span><strong>Policy</strong>: default deny when no active policy exists</span></li>
+      <li><i data-lucide="smartphone"></i><span><strong>Device posture</strong>: simulated security score must meet the minimum</span></li>
+    </ul>
+  </section>
+
+  <!-- Right: the sign-in form -->
+  <section class="login-panel">
+    <form method="post" action="{{ url_for('login') }}" class="login-card">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="d-lg-none d-flex align-items-center gap-2 mb-3">
+        <div class="brand-mark" style="width:34px;height:34px"><i data-lucide="shield-check"></i></div>
+        <strong>Mini ZTNA Gateway</strong>
+      </div>
+
+      <h3>Sign in</h3>
+      <p class="text-muted mb-4">Authenticate to start a verified session.</p>
+
+      <div class="mb-3">
+        <label class="form-label" for="username">Username</label>
+        <input class="form-control" id="username" name="username" type="text" required
+               maxlength="50" autocomplete="username" autofocus value="{{ username }}">
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label" for="password">Password</label>
+        <div class="input-group">
+          <input class="form-control" id="password" name="password" type="password" required
+                 maxlength="128" autocomplete="current-password">
+          <button class="btn btn-outline-secondary" type="button" data-toggle-password="password">Show</button>
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="form-label" for="device_id">Device (simulated)</label>
+        <select class="form-select" id="device_id" name="device_id" required>
+          {% for device in devices %}
+          <option value="{{ device.id }}">
+            {{ device.name }} · {{ device.os_name }} · score {{ device.posture_score }} ({{ device.trust_level|replace('_', ' ') }})
+          </option>
+          {% endfor %}
+        </select>
+        <div class="form-text">In a real ZTNA deployment an endpoint agent reports device health
+          automatically. Here you choose a simulated device to demonstrate posture checks.</div>
+      </div>
+
+      <button type="submit" class="btn btn-primary w-100 py-2">
+        <i data-lucide="log-in"></i> Sign in securely
+      </button>
+
+      <details class="demo-box">
+        <summary>Demo accounts (development only)</summary>
+        <p class="mt-2 mb-2">Click a role to fill the form. These passwords exist only for this local demo.</p>
+        <div class="d-flex flex-wrap gap-2">
+          <button type="button" class="demo-chip" data-fill-username="admin"   data-fill-password="Admin@12345">Admin</button>
+          <button type="button" class="demo-chip" data-fill-username="analyst" data-fill-password="Analyst@12345">Security Analyst</button>
+          <button type="button" class="demo-chip" data-fill-username="user"    data-fill-password="User@12345">Normal User</button>
+        </div>
+      </details>
+    </form>
+  </section>
+</div>
+{% endblock %}

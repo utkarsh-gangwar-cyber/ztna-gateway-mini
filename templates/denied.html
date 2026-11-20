@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+
+{# Logged-in users see the normal layout; anonymous visitors get a simple centred page. #}
+{% block layout %}
+{% if current_user %}
+  {{ super() }}
+{% else %}
+  <div class="login-panel" style="min-height:100vh">
+    <div class="login-card text-center">
+      <div class="stat-icon stat-red mx-auto mb-3" style="width:64px;height:64px">
+        <i data-lucide="shield-alert"></i>
+      </div>
+      <h3>{{ status_code }} · {{ title }}</h3>
+      <p class="text-muted">{{ reason }}</p>
+      <a href="{{ url_for('login') }}" class="btn btn-primary mt-2">Go to sign in</a>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block page_title %}{{ title }}{% endblock %}
+{% block page_subtitle %}Zero Trust access decision{% endblock %}
+
+{% block content %}
+<div class="card-ztna" style="max-width:760px">
+  <div class="card-pad">
+    <div class="d-flex align-items-center gap-3 mb-3">
+      <div class="stat-icon stat-red" style="width:56px;height:56px"><i data-lucide="shield-alert"></i></div>
+      <div>
+        <h2 class="h5 mb-1">{{ status_code }} · {{ title }}</h2>
+        <span class="badge-ztna denied">Denied</span>
+      </div>
+    </div>
+
+    <p class="mb-3">{{ reason }}</p>
+
+    {% if decision and decision.checks %}
+    <h3 class="card-title-sm mb-2"><i data-lucide="list-checks"></i> How the policy engine decided</h3>
+    <ul class="check-timeline mb-3">
+      {% for step in decision.checks %}
+      <li class="check-step {{ 'pass' if step.passed else 'fail' }}">
+        <i data-lucide="{{ 'check-circle' if step.passed else 'x-circle' }}"></i>
+        <div><strong>{{ step.check }}</strong><br><span class="text-muted">{{ step.detail }}</span></div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <a href="{{ url_for('home') }}" class="btn btn-outline-primary">
+      <i data-lucide="arrow-left"></i> Back to safety
+    </a>
+  </div>
+</div>
+{% endblock %}

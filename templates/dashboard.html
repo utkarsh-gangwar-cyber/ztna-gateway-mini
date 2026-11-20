@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Security Dashboard{% endblock %}
+{% block page_subtitle %}Live overview of identity, access decisions and device trust{% endblock %}
+
+{% block content %}
+
+<!-- Toolbar: real actions (refresh now, open the lab) -->
+<div class="page-toolbar">
+  <span class="live-pill"><span class="live-dot"></span> Live · refreshes every 10 s</span>
+  <span class="text-muted small" id="lastUpdated"></span>
+  <div class="ms-auto d-flex gap-2">
+    <button type="button" class="btn btn-outline-primary btn-sm" id="refreshBtn">
+      <i data-lucide="refresh-cw"></i> Refresh now
+    </button>
+    <a href="{{ url_for('security_lab_page') }}" class="btn btn-primary btn-sm">
+      <i data-lucide="flask-conical"></i> Open Security Lab
+    </a>
+  </div>
+</div>
+
+<!-- Statistic cards. data-stat="..." lets dashboard.js update the numbers live. -->
+<div class="row row-cols-2 row-cols-md-3 row-cols-xl-5 g-3 mb-3">
+  <div class="col"><div class="stat-card stat-blue">
+    <div class="stat-icon"><i data-lucide="users"></i></div>
+    <div><div class="stat-value" data-stat="total_users">{{ data.stats.total_users }}</div>
+      <div class="stat-label">Registered users</div></div>
+  </div></div>
+
+  <div class="col"><div class="stat-card stat-cyan">
+    <div class="stat-icon"><i data-lucide="activity"></i></div>
+    <div><div class="stat-value" data-stat="active_sessions">{{ data.stats.active_sessions }}</div>
+      <div class="stat-label">Active sessions</div></div>
+  </div></div>
+
+  <div class="col"><div class="stat-card stat-indigo">
+    <div class="stat-icon"><i data-lucide="key"></i></div>
+    <div><div class="stat-value" data-stat="total_requests">{{ data.stats.total_requests }}</div>
+      <div class="stat-label">Access requests</div></div>
+  </div></div>
+
+  <div class="col"><div class="stat-card stat-green">
+    <div class="stat-icon"><i data-lucide="check-circle"></i></div>
+    <div><div class="stat-value" data-stat="granted">{{ data.stats.granted }}</div>
+      <div class="stat-label">Access granted</div>
+      <div class="stat-sub" data-rate="granted"></div></div>
+  </div></div>
+
+  <div class="col"><div class="stat-card stat-red">
+    <div class="stat-icon"><i data-lucide="shield-alert"></i></div>
+    <div><div class="stat-value" data-stat="denied">{{ data.stats.denied }}</div>
+      <div class="stat-label">Access denied</div>
+      <div class="stat-sub" data-rate="denied"></div></div>
+  </div></div>
+</div>
+
+<!-- Charts -->
+<div class="row g-3 mb-3">
+  <div class="col-xl-8">
+    <div class="card-ztna">
+      <div class="card-head"><h2 class="card-title-sm"><i data-lucide="bar-chart-3"></i> Access request activity (last 7 days)</h2></div>
+      <div class="card-pad"><div class="chart-box"><canvas id="activityChart"></canvas></div></div>
+    </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card-ztna">
+      <div class="card-head"><h2 class="card-title-sm"><i data-lucide="pie-chart"></i> Granted vs denied</h2></div>
+      <div class="card-pad"><div class="chart-box"><canvas id="outcomeChart"></canvas></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Device trust + security events -->
+<div class="row g-3 mb-3">
+  <div class="col-xl-4">
+    <div class="card-ztna">
+      <div class="card-head">
+        <h2 class="card-title-sm"><i data-lucide="smartphone"></i> Device trust overview</h2>
+        <a class="small" href="{{ url_for('devices_page') }}">Manage</a>
+      </div>
+      <div class="card-pad">
+        <div class="chart-box small"><canvas id="trustChart"></canvas></div>
+        <ul class="trust-list">
+          <li><span class="dot dot-green"></span> Trusted <strong data-trust="trusted">{{ data.device_trust.trusted }}</strong></li>
+          <li><span class="dot dot-amber"></span> At risk <strong data-trust="at_risk">{{ data.device_trust.at_risk }}</strong></li>
+          <li><span class="dot dot-red"></span> Untrusted <strong data-trust="untrusted">{{ data.device_trust.untrusted }}</strong></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-8">
+    <div class="card-ztna">
+      <div class="card-head">
+        <h2 class="card-title-sm"><i data-lucide="siren"></i> Recent security events</h2>
+        <a class="small" href="{{ url_for('audit_logs') }}">View all</a>
+      </div>
+      <div class="event-list" id="eventsList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Latest access requests -->
+<div class="card-ztna">
+  <div class="card-head">
+    <h2 class="card-title-sm"><i data-lucide="list"></i> Latest access requests</h2>
+    <span class="text-muted small">Times shown in UTC</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-ztna table-hover">
+      <thead><tr>
+        <th>Time</th><th>User</th><th>Role</th><th>Resource</th><th>Decision</th><th>Reason</th>
+      </tr></thead>
+      <tbody id="requestsBody"></tbody>
+    </table>
+  </div>
+</div>
+
+{# Initial data for dashboard.js. The tojson filter escapes it safely for a <script> tag. #}
+<script id="dashboard-data" type="application/json">{{ data|tojson }}</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

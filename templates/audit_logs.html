@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Audit Logs{% endblock %}
+{% block page_title %}Audit Logs{% endblock %}
+{% block page_subtitle %}Every access decision and security event, searchable and exportable{% endblock %}
+
+{% block content %}
+{% set filters_active = filters.values()|select|list|length %}
+
+<!-- Server-side filters: submitting reloads the page with ?search=...&decision=... -->
+<form method="get" action="{{ url_for('audit_logs') }}" class="card-ztna card-pad mb-3" style="height:auto">
+  <div class="row g-3 align-items-end">
+    <div class="col-lg-4 col-md-6">
+      <label class="form-label" for="fSearch">Search</label>
+      <input class="form-control" id="fSearch" name="search" maxlength="100"
+             placeholder="User, resource, reason or IP" value="{{ filters.search }}">
+    </div>
+    <div class="col-lg-2 col-md-3 col-6">
+      <label class="form-label" for="fDecision">Decision</label>
+      <select class="form-select" id="fDecision" name="decision">
+        <option value="">All</option>
+        <option value="GRANTED" {% if filters.decision == 'GRANTED' %}selected{% endif %}>Granted</option>
+        <option value="DENIED" {% if filters.decision == 'DENIED' %}selected{% endif %}>Denied</option>
+      </select>
+    </div>
+    <div class="col-lg-2 col-md-3 col-6">
+      <label class="form-label" for="fRole">Role</label>
+      <select class="form-select" id="fRole" name="role">
+        <option value="">All</option>
+        {% for role_name in roles %}
+        <option value="{{ role_name }}" {% if filters.role == role_name %}selected{% endif %}>{{ role_name|capitalize }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-lg-4 col-md-6">
+      <label class="form-label" for="fResource">Resource</label>
+      <select class="form-select" id="fResource" name="resource">
+        <option value="">All resources</option>
+        {% for name in resource_names %}
+        <option value="{{ name }}" {% if filters.resource == name %}selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-lg-2 col-md-3 col-6">
+      <label class="form-label" for="fFrom">From date</label>
+      <input class="form-control" type="date" id="fFrom" name="date_from" value="{{ filters.date_from }}">
+    </div>
+    <div class="col-lg-2 col-md-3 col-6">
+      <label class="form-label" for="fTo">To date</label>
+      <input class="form-control" type="date" id="fTo" name="date_to" value="{{ filters.date_to }}">
+    </div>
+    <div class="col-lg-8 d-flex flex-wrap gap-2 justify-content-lg-end">
+      <button type="submit" class="btn btn-primary"><i data-lucide="filter"></i> Apply filters</button>
+      <a href="{{ url_for('audit_logs') }}" class="btn btn-outline-secondary"><i data-lucide="rotate-ccw"></i> Reset</a>
+      <a href="{{ url_for('export_audit_logs', **filters) }}" class="btn btn-outline-primary">
+        <i data-lucide="download"></i> Export CSV
+      </a>
+    </div>
+  </div>
+</form>
+
+<ul class="nav nav-pills mb-3" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tabAccess" type="button" role="tab">
+      <i data-lucide="key"></i> Access logs <span class="badge-ztna info ms-1">{{ logs|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="pill" data-bs-target="#tabEvents" type="button" role="tab">
+      <i data-lucide="siren"></i> Security events <span class="badge-ztna info ms-1">{{ events|length }}</span>
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+  <!-- ============ Access logs ============ -->
+  <div class="tab-pane fade show active" id="tabAccess" role="tabpanel">
+    <div class="card-ztna">
+      <div class="card-head">
+        <h2 class="card-title-sm"><i data-lucide="scroll-text"></i> Access decisions</h2>
+        <span class="text-muted small">
+          {{ logs|length }} result(s){% if filters_active %} · {{ filters_active }} filter(s) applied{% endif %}
+          · newest first · times in UTC
+        </span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-ztna table-hover">
+          <thead><tr>
+            <th>#</th><th>Time</th><th>User</th><th>Role</th><th>Resource</th><th>Decision</th><th>Reason</th><th>IP address</th>
+          </tr></thead>
+          <tbody>
+            {% for row in logs %}
+            <tr>
+              <td class="text-muted">{{ row.id }}</td>
+              <td class="text-nowrap text-muted">{{ row.timestamp }}</td>
+              <td class="fw-semibold">{{ row.username }}</td>
+              <td>{% if row.role %}<span class="badge-ztna role">{{ row.role }}</span>{% else %}<span class="text-muted">-</span>{% endif %}</td>
+              <td>{{ row.resource_name }}</td>
+              <td><span class="badge-ztna {{ 'granted' if row.decision == 'GRANTED' else 'denied' }}">{{ 'Granted' if row.decision == 'GRANTED' else 'Denied' }}</span></td>
+              <td style="min-width:260px;max-width:420px">{{ row.reason }}</td>
+              <td class="text-muted text-nowrap">{{ row.ip_address }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="8" class="empty-state">
+              {% if filters_active %}No access logs match these filters.{% else %}No access logs yet. Run the Security Lab or request a resource.{% endif %}
+            </td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if logs|length >= 500 %}
+      <div class="card-pad text-muted small">Showing the newest 500 matching rows. Narrow the filters to see older entries.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ============ Security events (filtered in the browser) ============ -->
+  <div class="tab-pane fade" id="tabEvents" role="tabpanel">
+    <div class="card-ztna">
+      <div class="table-toolbar">
+        <input type="search" class="form-control" placeholder="Search events..."
+               data-table-search="eventsTable" aria-label="Search security events">
+        <select class="form-select" data-table-filter="eventsTable" data-column="2" aria-label="Filter by severity">
+          <option value="">All severities</option>
+          <option value="info">Info</option><option value="warning">Warning</option><option value="critical">Critical</option>
+        </select>
+        <span class="text-muted small"><span data-table-count="eventsTable"></span> of {{ events|length }} latest events</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-ztna table-hover" id="eventsTable">
+          <thead><tr><th>Time</th><th>Event</th><th>Severity</th><th>User</th><th>Details</th></tr></thead>
+          <tbody>
+            {% for event in events %}
+            <tr>
+              <td class="text-nowrap text-muted">{{ event.timestamp }}</td>
+              <td class="fw-semibold text-nowrap">{{ event.event_type|replace('_', ' ')|lower }}</td>
+              <td data-value="{{ event.severity }}"><span class="badge-ztna {{ event.severity }}">{{ event.severity }}</span></td>
+              <td>{{ event.username or '-' }}</td>
+              <td style="min-width:260px;max-width:480px">{{ event.details }}</td>
+            </tr>
+            {% endfor %}
+            <tr data-no-results hidden><td colspan="5" class="empty-state">No events match your search.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
